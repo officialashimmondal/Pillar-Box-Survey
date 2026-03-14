@@ -9,7 +9,11 @@ import {
   orderBy,
   getDocFromServer,
   doc,
-  limit
+  limit,
+  updateDoc,
+  deleteDoc,
+  writeBatch,
+  getDocs
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { 
@@ -24,10 +28,12 @@ import {
   ChevronDown,
   User as UserIcon,
   RefreshCw,
-  FileSpreadsheet,
-  Link2,
-  Unlink,
-  Download
+  Download,
+  Pencil,
+  Trash2,
+  X,
+  Check,
+  ArrowLeft
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -213,6 +219,9 @@ function SurveyApp() {
   const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
   const [totalCount, setTotalCount] = useState(0);
   const [isSheetsConnected, setIsSheetsConnected] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Connection Listeners
   useEffect(() => {
@@ -377,20 +386,31 @@ function SurveyApp() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    setShowPreview(true);
+  };
 
+  const confirmSubmit = async () => {
     setIsSubmitting(true);
     const path = 'surveys';
     try {
-      // 1. Save to Firestore
-      await addDoc(collection(db, path), {
-        ...formData,
-        createdAt: serverTimestamp(),
-      });
+      if (editingId) {
+        // Update existing
+        await updateDoc(doc(db, path, editingId), {
+          ...formData,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        // Create new
+        await addDoc(collection(db, path), {
+          ...formData,
+          createdAt: serverTimestamp(),
+        });
+      }
       
-      // 2. Sync to Google Sheets if connected
+      // Sync to Google Sheets if connected
       if (isSheetsConnected) {
         try {
           await fetch('/api/surveys/sync-sheet', {
@@ -405,11 +425,45 @@ function SurveyApp() {
 
       setShowSuccess(true);
       setFormData(INITIAL_STATE);
+      setEditingId(null);
+      setShowPreview(false);
       setTimeout(() => setShowSuccess(false), 5000);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleEdit = (survey: SurveyData & { id: string, timestamp: Date }) => {
+    const { id, timestamp, ...data } = survey;
+    setFormData(data as SurveyData);
+    setEditingId(id);
+    setActiveTab('form');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this survey?')) return;
+    try {
+      await deleteDoc(doc(db, 'surveys', id));
+    } catch (error) {
+      console.error("Failed to delete survey:", error);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      const q = query(collection(db, 'surveys'));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+      setShowClearConfirm(false);
+    } catch (error) {
+      console.error("Failed to clear history:", error);
     }
   };
 
@@ -437,26 +491,7 @@ function SurveyApp() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isSheetsConnected ? (
-            <button 
-              onClick={handleDisconnectSheets}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-              title="Google Sheets Connected"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span className="hidden sm:inline">Connected</span>
-              <Unlink className="w-3 h-3 opacity-50" />
-            </button>
-          ) : (
-            <button 
-              onClick={handleConnectSheets}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-white text-[#49454F] border border-[#CAC4D0] hover:bg-[#F7F2FA] transition-colors"
-              title="Connect Google Sheets"
-            >
-              <Link2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Connect Sheets</span>
-            </button>
-          )}
+          {/* Sheets connection removed as requested */}
         </div>
       </header>
 
@@ -795,12 +830,24 @@ function SurveyApp() {
                 {isSubmitting ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Uploading...
+                    Processing...
                   </>
                 ) : (
-                  "Submit Survey"
+                  editingId ? "Update Survey" : "Submit Survey"
                 )}
               </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setFormData(INITIAL_STATE);
+                  }}
+                  className="w-full mt-4 text-[#6750A4] font-medium py-2 hover:bg-[#F7F2FA] rounded-full transition-colors"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </form>
           </>
         ) : (
@@ -818,6 +865,14 @@ function SurveyApp() {
                 >
                   <Download className="w-4 h-4" />
                   <span className="hidden sm:inline">Export CSV</span>
+                </button>
+                <button 
+                  onClick={() => setShowClearConfirm(true)}
+                  disabled={recentSurveys.length === 0}
+                  className="p-2 text-[#BA1A1A] hover:bg-[#FFDAD6] rounded-xl transition-colors disabled:opacity-30"
+                  title="Clear All History"
+                >
+                  <Trash2 className="w-5 h-5" />
                 </button>
                 <div className="bg-white px-4 py-2 rounded-2xl border border-[#CAC4D0] shadow-sm">
                   <span className="text-[10px] font-bold text-[#49454F] uppercase tracking-wider block">Total Loaded</span>
@@ -854,9 +909,25 @@ function SurveyApp() {
                           </p>
                         </div>
                       </div>
-                      <span className="bg-[#F7F2FA] text-[#49454F] text-[10px] font-bold px-3 py-1 rounded-full border border-[#CAC4D0] uppercase tracking-wider">
-                        {survey.category}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleEdit(survey)}
+                          className="p-2 text-[#6750A4] hover:bg-[#EADDFF] rounded-full transition-colors"
+                          title="Edit Survey"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(survey.id)}
+                          className="p-2 text-[#BA1A1A] hover:bg-[#FFDAD6] rounded-full transition-colors"
+                          title="Delete Survey"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <span className="bg-[#F7F2FA] text-[#49454F] text-[10px] font-bold px-3 py-1 rounded-full border border-[#CAC4D0] uppercase tracking-wider">
+                          {survey.category}
+                        </span>
+                      </div>
                     </div>
                     
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
@@ -899,6 +970,152 @@ function SurveyApp() {
         <p>© 2026 PB Survey Tool • Field Operations Division</p>
         <p className="mt-1">Data is automatically saved locally and synced when connection is available.</p>
       </footer>
+
+      {/* Preview Modal */}
+      <AnimatePresence>
+        {showPreview && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPreview(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative bg-white w-full max-w-2xl max-h-[90vh] rounded-[32px] overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-6 border-b border-[#CAC4D0] flex items-center justify-between bg-[#F7F2FA]">
+                <h2 className="text-xl font-bold text-[#1C1B1F]">Review Survey Data</h2>
+                <button onClick={() => setShowPreview(false)} className="p-2 hover:bg-[#EADDFF] rounded-full transition-colors">
+                  <X className="w-6 h-6 text-[#49454F]" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start gap-3">
+                  <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-800">Please review all information carefully before submitting. This will be recorded permanently.</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-bold text-[#6750A4] uppercase tracking-widest">Basic Info</h3>
+                    <div className="space-y-2">
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Surveyor:</span> {formData.surveyorName}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Date:</span> {formData.surveyDate}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Pillar Box:</span> {formData.pillarBoxName}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Category:</span> {formData.category}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-bold text-[#6750A4] uppercase tracking-widest">Pillar Details</h3>
+                    <div className="space-y-2">
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Type:</span> {formData.pillarType}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Size:</span> {formData.pillarSize}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Condition:</span> {formData.doorCondition}</p>
+                      <p className="text-sm"><span className="text-[#49454F] font-medium">Base Plate:</span> {formData.basePlateCondition}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-[#6750A4] uppercase tracking-widest">Checklist Results</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'Hinge Broken', value: formData.hingeBroken },
+                      { label: 'PB Inclined', value: formData.pbInclined },
+                      { label: 'Raising Required', value: formData.raisingRequired },
+                      { label: 'Garbage Blockage', value: formData.garbageBlockage },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center gap-2 text-sm">
+                        {item.value ? <Check className="w-4 h-4 text-emerald-600" /> : <X className="w-4 h-4 text-red-600" />}
+                        <span className={item.value ? "text-emerald-700 font-medium" : "text-[#49454F]"}>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-[#6750A4] uppercase tracking-widest">Address & Notes</h3>
+                  <div className="bg-[#F7F2FA] p-4 rounded-2xl space-y-3">
+                    <p className="text-sm italic text-[#49454F]">"{formData.pbAddress}"</p>
+                    {formData.findings && (
+                      <div className="pt-2 border-t border-[#CAC4D0]">
+                        <p className="text-xs font-bold text-[#6750A4] uppercase mb-1">Findings</p>
+                        <p className="text-sm text-[#49454F]">{formData.findings}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-[#CAC4D0] bg-[#F7F2FA] flex gap-3">
+                <button 
+                  onClick={() => setShowPreview(false)}
+                  className="flex-1 px-6 py-4 rounded-full font-bold text-[#6750A4] border border-[#6750A4] hover:bg-white transition-all flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                  Back
+                </button>
+                <button 
+                  onClick={confirmSubmit}
+                  disabled={isSubmitting}
+                  className="flex-[2] px-6 py-4 rounded-full font-bold bg-[#6750A4] text-white shadow-lg hover:bg-[#4F378B] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? "Processing..." : "Confirm & Submit"}
+                  <CheckCircle2 className="w-5 h-5" />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Clear History Confirmation Modal */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowClearConfirm(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8 text-red-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-[#1C1B1F] mb-2">Clear All History?</h2>
+              <p className="text-[#49454F] mb-8">This action cannot be undone. All submitted surveys will be permanently deleted from the database.</p>
+              
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleClearHistory}
+                  className="w-full bg-[#BA1A1A] text-white py-4 rounded-full font-bold hover:bg-[#93000A] transition-colors shadow-md"
+                >
+                  Yes, Delete Everything
+                </button>
+                <button 
+                  onClick={() => setShowClearConfirm(false)}
+                  className="w-full text-[#49454F] py-4 rounded-full font-bold hover:bg-[#F7F2FA] transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
