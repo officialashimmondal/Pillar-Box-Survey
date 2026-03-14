@@ -23,7 +23,10 @@ import {
   Info,
   ChevronDown,
   User as UserIcon,
-  RefreshCw
+  RefreshCw,
+  FileSpreadsheet,
+  Link2,
+  Unlink
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -208,6 +211,14 @@ function SurveyApp() {
   const [recentSurveys, setRecentSurveys] = useState<(SurveyData & { id: string })[]>([]);
   const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
   const [totalCount, setTotalCount] = useState(0);
+  const [isSheetsConnected, setIsSheetsConnected] = useState(false);
+  const [targetSheetUrl, setTargetSheetUrl] = useState(localStorage.getItem('targetSheetUrl') || '');
+  const [showSheetSettings, setShowSheetSettings] = useState(false);
+
+  const extractSheetId = (url: string) => {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : null;
+  };
 
   // Connection Listeners
   useEffect(() => {
@@ -216,6 +227,19 @@ function SurveyApp() {
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
+    // Check Google Sheets status
+    fetch('/api/auth/google/status')
+      .then(res => res.json())
+      .then(data => setIsSheetsConnected(data.connected))
+      .catch(err => console.error("Failed to check sheets status", err));
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        setIsSheetsConnected(true);
+      }
+    };
+    window.addEventListener('message', handleMessage);
 
     // Test Firestore connection
     const testConnection = async () => {
@@ -232,6 +256,7 @@ function SurveyApp() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('message', handleMessage);
     };
   }, []);
 
@@ -272,6 +297,25 @@ function SurveyApp() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const handleConnectSheets = async () => {
+    try {
+      const res = await fetch('/api/auth/google/url');
+      const { url } = await res.json();
+      window.open(url, 'google_auth', 'width=600,height=700');
+    } catch (error) {
+      console.error("Failed to get auth URL", error);
+    }
+  };
+
+  const handleDisconnectSheets = async () => {
+    try {
+      await fetch('/api/auth/google/logout', { method: 'POST' });
+      setIsSheetsConnected(false);
+    } catch (error) {
+      console.error("Failed to logout", error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
@@ -279,11 +323,29 @@ function SurveyApp() {
     setIsSubmitting(true);
     const path = 'surveys';
     try {
+      // 1. Save to Firestore
       await addDoc(collection(db, path), {
         ...formData,
         createdAt: serverTimestamp(),
       });
       
+      // 2. Sync to Google Sheets if connected
+      if (isSheetsConnected) {
+        const spreadsheetId = extractSheetId(targetSheetUrl);
+        try {
+          await fetch('/api/surveys/sync-sheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              surveyData: formData,
+              spreadsheetId: spreadsheetId 
+            }),
+          });
+        } catch (sheetError) {
+          console.error("Failed to sync to Google Sheets", sheetError);
+        }
+      }
+
       setShowSuccess(true);
       setFormData(INITIAL_STATE);
       setTimeout(() => setShowSuccess(false), 5000);
@@ -317,7 +379,95 @@ function SurveyApp() {
             </div>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {isSheetsConnected ? (
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => setShowSheetSettings(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                title="Sheet Settings"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span className="hidden sm:inline">Connected</span>
+              </button>
+              <button 
+                onClick={handleDisconnectSheets}
+                className="p-1.5 rounded-full text-emerald-700 hover:bg-emerald-100 transition-colors"
+                title="Disconnect"
+              >
+                <Unlink className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={handleConnectSheets}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-white text-[#49454F] border border-[#CAC4D0] hover:bg-[#F7F2FA] transition-colors"
+              title="Connect Google Sheets"
+            >
+              <Link2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Connect Sheets</span>
+            </button>
+          )}
+        </div>
       </header>
+
+      {/* Sheet Settings Modal */}
+      {showSheetSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[28px] w-full max-w-md p-6 shadow-xl border border-[#CAC4D0]"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-[#1C1B1F]">Sheet Settings</h2>
+              <button 
+                onClick={() => setShowSheetSettings(false)}
+                className="p-2 hover:bg-[#F7F2FA] rounded-full transition-colors"
+              >
+                <ChevronDown className="w-5 h-5 rotate-180" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-[#49454F] mb-2">Target Spreadsheet URL</label>
+                <input 
+                  type="text"
+                  placeholder="Paste Google Sheet Link here..."
+                  className="w-full bg-[#F7F2FA] border border-[#CAC4D0] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#6750A4] transition-all"
+                  value={targetSheetUrl}
+                  onChange={(e) => {
+                    setTargetSheetUrl(e.target.value);
+                    localStorage.setItem('targetSheetUrl', e.target.value);
+                  }}
+                />
+                <p className="mt-2 text-[10px] text-[#9e9e9e] leading-relaxed">
+                  If left blank, data will be saved to a default sheet named "PB Survey Data". 
+                  Make sure the sheet is shared with your Google account.
+                </p>
+              </div>
+
+              <div className="bg-[#F7F2FA] p-4 rounded-2xl border border-[#EADDFF]">
+                <div className="flex items-start gap-3">
+                  <Info className="w-4 h-4 text-[#6750A4] mt-0.5" />
+                  <p className="text-xs text-[#49454F]">
+                    The app will automatically detect columns and append data to the first sheet. 
+                    If the sheet is empty, it will add headers for you.
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowSheetSettings(false)}
+                className="w-full bg-[#6750A4] text-white font-bold py-3 rounded-xl shadow-md hover:bg-[#4F378B] transition-all"
+              >
+                Save & Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <main className="max-w-3xl mx-auto p-4 sm:p-6">
         {/* Navigation Tabs */}
