@@ -22,10 +22,9 @@
         "garbageBlockage": { "type": "boolean" },
         "pbAddress": { "type": "string" },
         "findings": { "type": "string" },
-        "createdBy": { "type": "string", "description": "UID of the surveyor" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["surveyorName", "surveyDate", "pillarBoxName", "category", "pillarType", "pillarSize", "pbAddress", "createdBy", "createdAt"]
+      "required": ["surveyorName", "surveyDate", "pillarBoxName", "category", "pillarType", "pillarSize", "pbAddress", "createdAt"]
     }
   },
   "firestore": {

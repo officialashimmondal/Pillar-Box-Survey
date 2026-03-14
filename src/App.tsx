@@ -6,24 +6,14 @@ import {
   serverTimestamp, 
   onSnapshot, 
   query, 
-  where, 
   orderBy,
   getDocFromServer,
   doc,
   limit
 } from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  signOut, 
-  User 
-} from 'firebase/auth';
 import { db, auth } from './firebase';
 import { 
   ClipboardCheck, 
-  LogOut, 
-  LogIn, 
   CheckCircle2, 
   AlertCircle, 
   Wifi, 
@@ -72,11 +62,11 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: auth.currentUser?.uid || 'anonymous',
+      email: auth.currentUser?.email || null,
+      emailVerified: auth.currentUser?.emailVerified || false,
+      isAnonymous: auth.currentUser?.isAnonymous || true,
+      tenantId: auth.currentUser?.tenantId || null,
       providerInfo: auth.currentUser?.providerData.map(provider => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
@@ -210,8 +200,6 @@ const INITIAL_STATE: SurveyData = {
 };
 
 function SurveyApp() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [formData, setFormData] = useState<SurveyData>(INITIAL_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -219,14 +207,10 @@ function SurveyApp() {
   const [errors, setErrors] = useState<Partial<Record<keyof SurveyData, string>>>({});
   const [recentSurveys, setRecentSurveys] = useState<(SurveyData & { id: string })[]>([]);
   const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
+  const [totalCount, setTotalCount] = useState(0);
 
-  // Auth & Connection Listeners
+  // Connection Listeners
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
@@ -246,21 +230,17 @@ function SurveyApp() {
     testConnection();
 
     return () => {
-      unsubscribe();
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // Fetch Recent Surveys
+  // Fetch Recent Surveys (Global for all users now)
   useEffect(() => {
-    if (!user) return;
-
     const q = query(
       collection(db, 'surveys'),
-      where('createdBy', '==', user.uid),
       orderBy('createdAt', 'desc'),
-      limit(10)
+      limit(20)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -269,24 +249,14 @@ function SurveyApp() {
         ...doc.data()
       })) as (SurveyData & { id: string })[];
       setRecentSurveys(surveys);
+      setTotalCount(snapshot.size); // This is just the size of the current snapshot (limit 20)
+      // In a real app, we might want a separate count query, but for "Recent", this is fine.
     }, (error) => {
-      // Don't throw here to avoid crashing the whole app on a list error
       console.error("Failed to fetch surveys:", error);
     });
 
     return () => unsubscribe();
-  }, [user]);
-
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed:", error);
-    }
-  };
-
-  const handleLogout = () => signOut(auth);
+  }, []);
 
   const validate = () => {
     const newErrors: Partial<Record<keyof SurveyData, string>> = {};
@@ -311,7 +281,6 @@ function SurveyApp() {
     try {
       await addDoc(collection(db, path), {
         ...formData,
-        createdBy: user?.uid,
         createdAt: serverTimestamp(),
       });
       
@@ -324,40 +293,6 @@ function SurveyApp() {
       setIsSubmitting(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F7F2FA] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#6750A4] border-t-transparent"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-[#F7F2FA] flex flex-col items-center justify-center p-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-[28px] p-8 shadow-lg text-center border border-[#CAC4D0]"
-        >
-          <div className="w-16 h-16 bg-[#EADDFF] rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <ClipboardCheck className="w-8 h-8 text-[#21005D]" />
-          </div>
-          <h1 className="text-3xl font-bold text-[#1C1B1F] mb-2">PB Survey Tool</h1>
-          <p className="text-[#49454F] mb-8">Professional Field Technician Survey Application</p>
-          
-          <button
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-[#6750A4] text-white py-4 rounded-full font-medium hover:bg-[#4F378B] transition-colors shadow-md active:scale-95"
-          >
-            <LogIn className="w-5 h-5" />
-            Sign in with Google
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#F7F2FA] pb-12">
@@ -381,20 +316,6 @@ function SurveyApp() {
               )}
             </div>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-2 text-sm text-[#49454F]">
-            <img src={user.photoURL || ''} alt="" className="w-8 h-8 rounded-full border border-[#CAC4D0]" />
-            <span className="font-medium">{user.displayName}</span>
-          </div>
-          <button 
-            onClick={handleLogout}
-            className="p-2 text-[#49454F] hover:bg-[#EADDFF] rounded-full transition-colors"
-            title="Logout"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
         </div>
       </header>
 
@@ -742,8 +663,18 @@ function SurveyApp() {
             </form>
           </>
         ) : (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-[#1C1B1F] mb-6">Recent Submissions</h2>
+          <div className="space-y-6">
+            <div className="flex items-end justify-between mb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-[#1C1B1F]">Recent Submissions</h2>
+                <p className="text-sm text-[#49454F]">Showing last {recentSurveys.length} surveys</p>
+              </div>
+              <div className="bg-white px-4 py-2 rounded-2xl border border-[#CAC4D0] shadow-sm">
+                <span className="text-[10px] font-bold text-[#49454F] uppercase tracking-wider block">Total Loaded</span>
+                <span className="text-2xl font-light text-[#1C1B1F]">{totalCount}</span>
+              </div>
+            </div>
+
             {recentSurveys.length === 0 ? (
               <div className="bg-white rounded-[28px] p-12 text-center border border-[#CAC4D0]">
                 <div className="w-16 h-16 bg-[#F7F2FA] rounded-full flex items-center justify-center mx-auto mb-4">
@@ -752,40 +683,61 @@ function SurveyApp() {
                 <p className="text-[#49454F]">No surveys submitted yet.</p>
               </div>
             ) : (
-              recentSurveys.map((survey) => (
-                <motion.div
-                  key={survey.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="bg-white rounded-2xl p-5 shadow-sm border border-[#CAC4D0] hover:border-[#6750A4] transition-colors"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h3 className="font-bold text-[#1C1B1F] text-lg">{survey.pillarBoxName}</h3>
-                      <p className="text-xs text-[#49454F] flex items-center gap-1">
-                        <Calendar className="w-3 h-3" /> {survey.surveyDate}
-                      </p>
+              <div className="grid grid-cols-1 gap-4">
+                {recentSurveys.map((survey) => (
+                  <motion.div
+                    key={survey.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-[24px] p-6 shadow-sm border border-[#CAC4D0] hover:border-[#6750A4] transition-all group"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-bold text-[#1C1B1F] text-xl group-hover:text-[#6750A4] transition-colors">{survey.pillarBoxName}</h3>
+                        <div className="flex items-center gap-3 mt-1">
+                          <p className="text-xs text-[#9e9e9e] flex items-center gap-1">
+                            <Calendar className="w-3 h-3" /> {survey.surveyDate}
+                          </p>
+                          <p className="text-xs text-[#9e9e9e] flex items-center gap-1">
+                            <UserIcon className="w-3 h-3" /> {survey.surveyorName}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="bg-[#F7F2FA] text-[#49454F] text-[10px] font-bold px-3 py-1 rounded-full border border-[#CAC4D0] uppercase tracking-wider">
+                        {survey.category}
+                      </span>
                     </div>
-                    <span className="bg-[#EADDFF] text-[#21005D] text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">
-                      {survey.category}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-y-2 text-sm text-[#49454F]">
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-2 h-2 rounded-full", survey.lock === 'YES' ? "bg-emerald-500" : "bg-red-500")} />
-                      Lock: {survey.lock}
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                      <div className="bg-[#F7F2FA] p-3 rounded-xl border border-transparent group-hover:border-[#EADDFF] transition-colors">
+                        <span className="text-[10px] text-[#9e9e9e] uppercase font-bold block mb-1">Lock</span>
+                        <span className={cn("text-sm font-medium", survey.lock === 'YES' ? "text-emerald-600" : "text-red-600")}>
+                          {survey.lock}
+                        </span>
+                      </div>
+                      <div className="bg-[#F7F2FA] p-3 rounded-xl border border-transparent group-hover:border-[#EADDFF] transition-colors">
+                        <span className="text-[10px] text-[#9e9e9e] uppercase font-bold block mb-1">Door</span>
+                        <span className={cn("text-sm font-medium", survey.doorStatus === 'PROPERLY CLOSED' ? "text-emerald-600" : "text-red-600")}>
+                          {survey.doorStatus === 'PROPERLY CLOSED' ? 'Closed' : 'Open'}
+                        </span>
+                      </div>
+                      <div className="bg-[#F7F2FA] p-3 rounded-xl border border-transparent group-hover:border-[#EADDFF] transition-colors">
+                        <span className="text-[10px] text-[#9e9e9e] uppercase font-bold block mb-1">Type</span>
+                        <span className="text-sm font-medium text-[#1C1B1F]">{survey.pillarType}</span>
+                      </div>
+                      <div className="bg-[#F7F2FA] p-3 rounded-xl border border-transparent group-hover:border-[#EADDFF] transition-colors">
+                        <span className="text-[10px] text-[#9e9e9e] uppercase font-bold block mb-1">Size</span>
+                        <span className="text-sm font-medium text-[#1C1B1F]">{survey.pillarSize}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-2 h-2 rounded-full", survey.doorStatus === 'PROPERLY CLOSED' ? "bg-emerald-500" : "bg-red-500")} />
-                      Door: {survey.doorStatus === 'PROPERLY CLOSED' ? 'Closed' : 'Open'}
+
+                    <div className="pt-4 border-t border-[#F7F2FA] flex items-center gap-2 text-xs text-[#9e9e9e]">
+                      <MapPin className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{survey.pbAddress}</span>
                     </div>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-[#CAC4D0] flex items-center gap-2 text-xs text-[#49454F]">
-                    <MapPin className="w-3 h-3 flex-shrink-0" />
-                    <span className="truncate">{survey.pbAddress}</span>
-                  </div>
-                </motion.div>
-              ))
+                  </motion.div>
+                ))}
+              </div>
             )}
           </div>
         )}

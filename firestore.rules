@@ -38,7 +38,7 @@ service cloud.firestore {
     }
 
     function isValidSurvey(data) {
-      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdBy', 'createdAt']) &&
+      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdAt']) &&
              data.surveyorName is string && data.surveyorName.size() > 0 && data.surveyorName.size() < 100 &&
              data.surveyDate is string &&
              data.pillarBoxName is string && data.pillarBoxName.size() > 0 && data.pillarBoxName.size() < 100 &&
@@ -46,18 +46,16 @@ service cloud.firestore {
              data.pillarType in ['MODIFIED', 'CONVENTIONAL'] &&
              data.pillarSize in ['2WAY', '4WAY', '6WAY', '8WAY'] &&
              data.pbAddress is string && data.pbAddress.size() > 0 && data.pbAddress.size() < 1000 &&
-             data.createdBy == request.auth.uid &&
              data.createdAt is timestamp;
     }
 
     match /surveys/{surveyId} {
-      // Users can read their own surveys
-      allow read: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
+      // Allow public read for recent history
+      allow read: if true;
       
-      // Users can create surveys
-      allow create: if isAuthenticated() && isValidSurvey(request.resource.data);
+      // Allow public create
+      allow create: if isValidSurvey(request.resource.data);
       
-      // No updates or deletes for now to maintain audit trail, or restrict to owner
       allow update: if false;
       allow delete: if false;
     }
