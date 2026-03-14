@@ -446,17 +446,20 @@ function SurveyApp() {
     setSubmissionError(null);
     const path = 'surveys';
     try {
+      // Clean data for Firestore (remove UI-only fields like 'id' or 'timestamp')
+      const { id: _, timestamp: __, ...cleanData } = formData as any;
+      
       if (editingId) {
         // Update existing
         await updateDoc(doc(db, path, editingId), {
-          ...formData,
+          ...cleanData,
           updatedAt: serverTimestamp(),
           createdBy: user.uid,
         });
       } else {
         // Create new
         await addDoc(collection(db, path), {
-          ...formData,
+          ...cleanData,
           createdAt: serverTimestamp(),
           createdBy: user.uid,
         });
@@ -481,8 +484,18 @@ function SurveyApp() {
       setShowPreview(false);
       setTimeout(() => setShowSuccess(false), 5000);
     } catch (error: any) {
-      console.error("Submission error:", error);
-      setSubmissionError(error.message || "Failed to submit survey. Please try again.");
+      console.error("Submission error details:", error);
+      let msg = "Failed to submit survey. ";
+      if (error.code === 'permission-denied') {
+        msg += "Permission denied. This usually happens if a required field is missing or invalid.";
+      } else if (error.code === 'unavailable') {
+        msg += "Network error. Please check your internet connection.";
+      } else if (error.message) {
+        msg += error.message;
+      } else {
+        msg += "Please try again.";
+      }
+      setSubmissionError(msg);
     } finally {
       setIsSubmitting(false);
     }

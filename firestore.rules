@@ -44,16 +44,15 @@ service cloud.firestore {
 
     function isValidSurvey(data, isUpdate) {
       return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdBy']) &&
-             (isUpdate || data.keys().hasAll(['createdAt'])) &&
-             data.surveyorName is string && data.surveyorName.size() > 0 && data.surveyorName.size() < 100 &&
+             data.surveyorName is string &&
              data.surveyDate is string &&
-             data.pillarBoxName is string && data.pillarBoxName.size() > 0 && data.pillarBoxName.size() < 100 &&
-             data.category in ['ACPB', 'FEEDER PILLAR', 'LINK PILLAR'] &&
-             data.pillarType in ['MODIFIED', 'CONVENTIONAL'] &&
-             data.pillarSize in ['2WAY', '4WAY', '6WAY', '8WAY'] &&
-             data.pbAddress is string && data.pbAddress.size() > 0 && data.pbAddress.size() < 1000 &&
-             (isUpdate || data.createdAt is timestamp) &&
-             data.createdBy == request.auth.uid;
+             data.pillarBoxName is string &&
+             data.category is string &&
+             data.pillarType is string &&
+             data.pillarSize is string &&
+             data.pbAddress is string &&
+             data.createdBy == request.auth.uid &&
+             (isUpdate || data.createdAt == request.time);
     }
 
     match /surveys/{surveyId} {
@@ -61,11 +60,11 @@ service cloud.firestore {
       allow read: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
       
       // Allow users to create surveys tagged with their UID
-      allow create: if isValidSurvey(request.resource.data, false);
+      allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid;
       
       // Allow users to update/delete only their own surveys
-      allow update: if isOwner(resource.data) && isValidSurvey(request.resource.data, true);
-      allow delete: if isOwner(resource.data);
+      allow update: if isAuthenticated() && resource.data.createdBy == request.auth.uid && request.resource.data.createdBy == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
     }
   }
 }
