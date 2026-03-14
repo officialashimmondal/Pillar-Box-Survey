@@ -187,6 +187,7 @@ function SurveyApp() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [formData, setFormData] = useState<SurveyData>(INITIAL_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof SurveyData, string>>>({});
   const [recentSurveys, setRecentSurveys] = useState<(SurveyData & { id: string, timestamp: Date })[]>([]);
@@ -437,7 +438,12 @@ function SurveyApp() {
   };
 
   const confirmSubmit = async () => {
+    if (!user) {
+      setSubmissionError("Device identification not ready. Please wait.");
+      return;
+    }
     setIsSubmitting(true);
+    setSubmissionError(null);
     const path = 'surveys';
     try {
       if (editingId) {
@@ -445,14 +451,14 @@ function SurveyApp() {
         await updateDoc(doc(db, path, editingId), {
           ...formData,
           updatedAt: serverTimestamp(),
-          createdBy: user?.uid, // Ensure it's tagged
+          createdBy: user.uid,
         });
       } else {
         // Create new
         await addDoc(collection(db, path), {
           ...formData,
           createdAt: serverTimestamp(),
-          createdBy: user?.uid,
+          createdBy: user.uid,
         });
       }
       
@@ -474,8 +480,9 @@ function SurveyApp() {
       setEditingId(null);
       setShowPreview(false);
       setTimeout(() => setShowSuccess(false), 5000);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch (error: any) {
+      console.error("Submission error:", error);
+      setSubmissionError(error.message || "Failed to submit survey. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -513,6 +520,15 @@ function SurveyApp() {
       handleFirestoreError(error, OperationType.DELETE, path);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#F7F2FA] flex flex-col items-center justify-center p-6">
+        <div className="w-16 h-16 border-4 border-[#6750A4] border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-[#6750A4] font-bold animate-pulse">Identifying Device...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F2FA] pb-12">
@@ -1054,6 +1070,12 @@ function SurveyApp() {
               </div>
               
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {submissionError && (
+                  <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-800 font-medium">{submissionError}</p>
+                  </div>
+                )}
                 <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start gap-3">
                   <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <p className="text-sm text-amber-800">Please review all information carefully before submitting. This will be recorded permanently.</p>

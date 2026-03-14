@@ -42,8 +42,9 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == data.createdBy;
     }
 
-    function isValidSurvey(data) {
-      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdAt', 'createdBy']) &&
+    function isValidSurvey(data, isUpdate) {
+      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdBy']) &&
+             (isUpdate || data.keys().hasAll(['createdAt'])) &&
              data.surveyorName is string && data.surveyorName.size() > 0 && data.surveyorName.size() < 100 &&
              data.surveyDate is string &&
              data.pillarBoxName is string && data.pillarBoxName.size() > 0 && data.pillarBoxName.size() < 100 &&
@@ -51,7 +52,7 @@ service cloud.firestore {
              data.pillarType in ['MODIFIED', 'CONVENTIONAL'] &&
              data.pillarSize in ['2WAY', '4WAY', '6WAY', '8WAY'] &&
              data.pbAddress is string && data.pbAddress.size() > 0 && data.pbAddress.size() < 1000 &&
-             data.createdAt is timestamp &&
+             (isUpdate || data.createdAt is timestamp) &&
              data.createdBy == request.auth.uid;
     }
 
@@ -60,10 +61,10 @@ service cloud.firestore {
       allow read: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
       
       // Allow users to create surveys tagged with their UID
-      allow create: if isValidSurvey(request.resource.data);
+      allow create: if isValidSurvey(request.resource.data, false);
       
       // Allow users to update/delete only their own surveys
-      allow update: if isOwner(resource.data) && isValidSurvey(request.resource.data);
+      allow update: if isOwner(resource.data) && isValidSurvey(request.resource.data, true);
       allow delete: if isOwner(resource.data);
     }
   }
