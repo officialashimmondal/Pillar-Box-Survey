@@ -61,9 +61,9 @@ service cloud.firestore {
       // Allow public create
       allow create: if isValidSurvey(request.resource.data);
       
-      // Allow update/delete for admins
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      // Allow public update/delete for simplicity as requested
+      allow update: if true;
+      allow delete: if true;
     }
   }
 }

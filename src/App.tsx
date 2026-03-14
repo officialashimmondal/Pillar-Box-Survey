@@ -15,14 +15,7 @@ import {
   writeBatch,
   getDocs
 } from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged,
-  signOut,
-  User
-} from 'firebase/auth';
-import { db, auth } from './firebase';
+import { db } from './firebase';
 import { 
   ClipboardCheck, 
   CheckCircle2, 
@@ -40,9 +33,7 @@ import {
   Trash2,
   X,
   Check,
-  ArrowLeft,
-  LogIn,
-  LogOut
+  ArrowLeft
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -58,41 +49,9 @@ enum OperationType {
   WRITE = 'write',
 }
 
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
+  const errInfo = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid || 'anonymous',
-      email: auth.currentUser?.email || null,
-      emailVerified: auth.currentUser?.emailVerified || false,
-      isAnonymous: auth.currentUser?.isAnonymous || true,
-      tenantId: auth.currentUser?.tenantId || null,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
     operationType,
     path
   }
@@ -232,32 +191,6 @@ function SurveyApp() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showExportConfirm, setShowExportConfirm] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-
-  // Auth Listener
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed:", error);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  };
 
   // Connection Listeners
   useEffect(() => {
@@ -576,29 +509,7 @@ function SurveyApp() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {user ? (
-            <div className="flex items-center gap-2">
-              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[10px] font-bold text-[#1C1B1F] leading-none">{user.displayName}</span>
-                <span className="text-[8px] text-[#49454F] leading-none">{user.email}</span>
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="p-2 text-[#49454F] hover:bg-[#F7F2FA] rounded-full transition-colors"
-                title="Logout"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
-          ) : (
-            <button 
-              onClick={handleLogin}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#F7F2FA] text-[#6750A4] rounded-full text-xs font-bold hover:bg-[#EADDFF] transition-colors"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Login</span>
-            </button>
-          )}
+          {/* Sheets connection removed as requested */}
         </div>
       </header>
 
