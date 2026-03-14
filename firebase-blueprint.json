@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "Survey": {
+      "title": "Survey",
+      "description": "A pillar box survey record",
+      "type": "object",
+      "properties": {
+        "surveyorName": { "type": "string", "description": "Name of the surveyor" },
+        "surveyDate": { "type": "string", "format": "date", "description": "Date of the survey" },
+        "pillarBoxName": { "type": "string", "description": "Name or number of the pillar box" },
+        "category": { "type": "string", "enum": ["ACPB", "FEEDER PILLAR", "LINK PILLAR"] },
+        "pillarType": { "type": "string", "enum": ["MODIFIED", "CONVENTIONAL"] },
+        "pillarSize": { "type": "string", "enum": ["2WAY", "4WAY", "6WAY", "8WAY"] },
+        "doorCondition": { "type": "string", "enum": ["FRONT", "BACK"] },
+        "basePlateCondition": { "type": "string", "enum": ["OK", "BROKEN", "DAMAGED"] },
+        "blankOff": { "type": "string", "enum": ["OK", "SOIL RAISED UP", "DAMAGED"] },
+        "lock": { "type": "string", "enum": ["YES", "NO"] },
+        "doorStatus": { "type": "string", "enum": ["PROPERLY CLOSED", "PROPERLY NOT CLOSED"] },
+        "hingeBroken": { "type": "boolean" },
+        "pbInclined": { "type": "boolean" },
+        "raisingRequired": { "type": "boolean" },
+        "garbageBlockage": { "type": "boolean" },
+        "pbAddress": { "type": "string" },
+        "findings": { "type": "string" },
+        "createdBy": { "type": "string", "description": "UID of the surveyor" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["surveyorName", "surveyDate", "pillarBoxName", "category", "pillarType", "pillarSize", "pbAddress", "createdBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/surveys/{surveyId}": {
+      "schema": "Survey",
+      "description": "Collection of pillar box surveys"
+    }
+  }
+}

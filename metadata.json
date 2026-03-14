@@ -1,0 +1,5 @@
+{
+  "name": "PB Survey Tool",
+  "description": "A professional survey tool for field technicians to inspect Pillar Boxes, featuring offline-first data entry and Material Design 3 interface.",
+  "requestFramePermissions": []
+}
