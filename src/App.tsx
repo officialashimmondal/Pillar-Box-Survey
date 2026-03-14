@@ -26,7 +26,8 @@ import {
   RefreshCw,
   FileSpreadsheet,
   Link2,
-  Unlink
+  Unlink,
+  Download
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -208,17 +209,10 @@ function SurveyApp() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof SurveyData, string>>>({});
-  const [recentSurveys, setRecentSurveys] = useState<(SurveyData & { id: string })[]>([]);
+  const [recentSurveys, setRecentSurveys] = useState<(SurveyData & { id: string, timestamp: Date })[]>([]);
   const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
   const [totalCount, setTotalCount] = useState(0);
   const [isSheetsConnected, setIsSheetsConnected] = useState(false);
-  const [targetSheetUrl, setTargetSheetUrl] = useState(localStorage.getItem('targetSheetUrl') || '');
-  const [showSheetSettings, setShowSheetSettings] = useState(false);
-
-  const extractSheetId = (url: string) => {
-    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    return match ? match[1] : null;
-  };
 
   // Connection Listeners
   useEffect(() => {
@@ -269,10 +263,14 @@ function SurveyApp() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const surveys = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as (SurveyData & { id: string })[];
+      const surveys = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          timestamp: data.createdAt?.toDate?.() || new Date()
+        };
+      }) as (SurveyData & { id: string, timestamp: Date })[];
       setRecentSurveys(surveys);
       setTotalCount(snapshot.size); // This is just the size of the current snapshot (limit 20)
       // In a real app, we might want a separate count query, but for "Recent", this is fine.
@@ -297,6 +295,69 @@ function SurveyApp() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const downloadCSV = () => {
+    if (recentSurveys.length === 0) return;
+
+    // Define headers based on SurveyData interface
+    const headers = [
+      'Submission Date',
+      'Surveyor Name',
+      'Survey Date',
+      'Pillar Box Name/Number',
+      'Category',
+      'Pillar Type',
+      'Pillar Size',
+      'Door Condition',
+      'Base Plate Condition',
+      'Blank Off',
+      'Lock',
+      'Door Status',
+      'Hinge Broken',
+      'PB Inclined',
+      'Raising Required',
+      'Garbage Blockage',
+      'PB Address',
+      'Findings'
+    ];
+
+    // Convert data to CSV rows
+    const csvRows = [
+      headers.join(','), // Header row
+      ...recentSurveys.map(s => {
+        return [
+          new Date(s.timestamp).toLocaleString(),
+          `"${s.surveyorName}"`,
+          `"${s.surveyDate}"`,
+          `"${s.pillarBoxName}"`,
+          `"${s.category}"`,
+          `"${s.pillarType}"`,
+          `"${s.pillarSize}"`,
+          `"${s.doorCondition}"`,
+          `"${s.basePlateCondition}"`,
+          `"${s.blankOff}"`,
+          `"${s.lock}"`,
+          `"${s.doorStatus}"`,
+          s.hingeBroken ? 'YES' : 'NO',
+          s.pbInclined ? 'YES' : 'NO',
+          s.raisingRequired ? 'YES' : 'NO',
+          s.garbageBlockage ? 'YES' : 'NO',
+          `"${s.pbAddress.replace(/"/g, '""')}"`,
+          `"${s.findings.replace(/"/g, '""')}"`
+        ].join(',');
+      })
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `pillar_box_surveys_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   const handleConnectSheets = async () => {
     try {
       const res = await fetch('/api/auth/google/url');
@@ -331,15 +392,11 @@ function SurveyApp() {
       
       // 2. Sync to Google Sheets if connected
       if (isSheetsConnected) {
-        const spreadsheetId = extractSheetId(targetSheetUrl);
         try {
           await fetch('/api/surveys/sync-sheet', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              surveyData: formData,
-              spreadsheetId: spreadsheetId 
-            }),
+            body: JSON.stringify({ surveyData: formData }),
           });
         } catch (sheetError) {
           console.error("Failed to sync to Google Sheets", sheetError);
@@ -381,23 +438,15 @@ function SurveyApp() {
         </div>
         <div className="flex items-center gap-2">
           {isSheetsConnected ? (
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={() => setShowSheetSettings(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                title="Sheet Settings"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span className="hidden sm:inline">Connected</span>
-              </button>
-              <button 
-                onClick={handleDisconnectSheets}
-                className="p-1.5 rounded-full text-emerald-700 hover:bg-emerald-100 transition-colors"
-                title="Disconnect"
-              >
-                <Unlink className="w-4 h-4" />
-              </button>
-            </div>
+            <button 
+              onClick={handleDisconnectSheets}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              title="Google Sheets Connected"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline">Connected</span>
+              <Unlink className="w-3 h-3 opacity-50" />
+            </button>
           ) : (
             <button 
               onClick={handleConnectSheets}
@@ -410,64 +459,6 @@ function SurveyApp() {
           )}
         </div>
       </header>
-
-      {/* Sheet Settings Modal */}
-      {showSheetSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[28px] w-full max-w-md p-6 shadow-xl border border-[#CAC4D0]"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-[#1C1B1F]">Sheet Settings</h2>
-              <button 
-                onClick={() => setShowSheetSettings(false)}
-                className="p-2 hover:bg-[#F7F2FA] rounded-full transition-colors"
-              >
-                <ChevronDown className="w-5 h-5 rotate-180" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-[#49454F] mb-2">Target Spreadsheet URL</label>
-                <input 
-                  type="text"
-                  placeholder="Paste Google Sheet Link here..."
-                  className="w-full bg-[#F7F2FA] border border-[#CAC4D0] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#6750A4] transition-all"
-                  value={targetSheetUrl}
-                  onChange={(e) => {
-                    setTargetSheetUrl(e.target.value);
-                    localStorage.setItem('targetSheetUrl', e.target.value);
-                  }}
-                />
-                <p className="mt-2 text-[10px] text-[#9e9e9e] leading-relaxed">
-                  If left blank, data will be saved to a default sheet named "PB Survey Data". 
-                  Make sure the sheet is shared with your Google account.
-                </p>
-              </div>
-
-              <div className="bg-[#F7F2FA] p-4 rounded-2xl border border-[#EADDFF]">
-                <div className="flex items-start gap-3">
-                  <Info className="w-4 h-4 text-[#6750A4] mt-0.5" />
-                  <p className="text-xs text-[#49454F]">
-                    The app will automatically detect columns and append data to the first sheet. 
-                    If the sheet is empty, it will add headers for you.
-                  </p>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setShowSheetSettings(false)}
-                className="w-full bg-[#6750A4] text-white font-bold py-3 rounded-xl shadow-md hover:bg-[#4F378B] transition-all"
-              >
-                Save & Close
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       <main className="max-w-3xl mx-auto p-4 sm:p-6">
         {/* Navigation Tabs */}
@@ -819,9 +810,19 @@ function SurveyApp() {
                 <h2 className="text-2xl font-bold text-[#1C1B1F]">Recent Submissions</h2>
                 <p className="text-sm text-[#49454F]">Showing last {recentSurveys.length} surveys</p>
               </div>
-              <div className="bg-white px-4 py-2 rounded-2xl border border-[#CAC4D0] shadow-sm">
-                <span className="text-[10px] font-bold text-[#49454F] uppercase tracking-wider block">Total Loaded</span>
-                <span className="text-2xl font-light text-[#1C1B1F]">{totalCount}</span>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={downloadCSV}
+                  disabled={recentSurveys.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#6750A4] text-white rounded-xl text-sm font-bold shadow-md hover:bg-[#4F378B] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Export CSV</span>
+                </button>
+                <div className="bg-white px-4 py-2 rounded-2xl border border-[#CAC4D0] shadow-sm">
+                  <span className="text-[10px] font-bold text-[#49454F] uppercase tracking-wider block">Total Loaded</span>
+                  <span className="text-2xl font-light text-[#1C1B1F]">{totalCount}</span>
+                </div>
               </div>
             </div>
 
