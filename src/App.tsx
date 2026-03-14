@@ -7,6 +7,7 @@ import {
   onSnapshot, 
   query, 
   orderBy,
+  where,
   getDocFromServer,
   doc,
   limit,
@@ -15,7 +16,12 @@ import {
   writeBatch,
   getDocs
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { 
+  onAuthStateChanged,
+  signInAnonymously,
+  User
+} from 'firebase/auth';
+import { db, auth } from './firebase';
 import { 
   ClipboardCheck, 
   CheckCircle2, 
@@ -191,6 +197,23 @@ function SurveyApp() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showExportConfirm, setShowExportConfirm] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Auth Listener - Simple Anonymous Login
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        setUser(u);
+      } else {
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error("Anonymous login failed:", error);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Connection Listeners
   useEffect(() => {
@@ -232,10 +255,13 @@ function SurveyApp() {
     };
   }, []);
 
-  // Fetch Recent Surveys (Global for all users now)
+  // Fetch Recent Surveys (Filtered by current user)
   useEffect(() => {
+    if (!user) return;
+
     const q = query(
       collection(db, 'surveys'),
+      where('createdBy', '==', user.uid),
       orderBy('createdAt', 'desc'),
       limit(20)
     );
@@ -419,12 +445,14 @@ function SurveyApp() {
         await updateDoc(doc(db, path, editingId), {
           ...formData,
           updatedAt: serverTimestamp(),
+          createdBy: user?.uid, // Ensure it's tagged
         });
       } else {
         // Create new
         await addDoc(collection(db, path), {
           ...formData,
           createdAt: serverTimestamp(),
+          createdBy: user?.uid,
         });
       }
       
@@ -470,9 +498,10 @@ function SurveyApp() {
   };
 
   const handleClearHistory = async () => {
+    if (!user) return;
     const path = 'surveys';
     try {
-      const q = query(collection(db, path));
+      const q = query(collection(db, path), where('createdBy', '==', user.uid));
       const snapshot = await getDocs(q);
       const batch = writeBatch(db);
       snapshot.docs.forEach((doc) => {
@@ -509,6 +538,12 @@ function SurveyApp() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {user && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-[#F7F2FA] rounded-full border border-[#CAC4D0]">
+              <UserIcon className="w-3 h-3 text-[#6750A4]" />
+              <span className="text-[9px] font-medium text-[#49454F]">ID: {user.uid.slice(0, 6)}...</span>
+            </div>
+          )}
           {/* Sheets connection removed as requested */}
         </div>
       </header>

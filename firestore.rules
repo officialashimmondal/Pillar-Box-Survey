@@ -38,12 +38,12 @@ service cloud.firestore {
         (request.auth.token.email == "official.ashimmondal@gmail.com" && request.auth.token.email_verified == true);
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isOwner(data) {
+      return isAuthenticated() && request.auth.uid == data.createdBy;
     }
 
     function isValidSurvey(data) {
-      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdAt']) &&
+      return data.keys().hasAll(['surveyorName', 'surveyDate', 'pillarBoxName', 'category', 'pillarType', 'pillarSize', 'pbAddress', 'createdAt', 'createdBy']) &&
              data.surveyorName is string && data.surveyorName.size() > 0 && data.surveyorName.size() < 100 &&
              data.surveyDate is string &&
              data.pillarBoxName is string && data.pillarBoxName.size() > 0 && data.pillarBoxName.size() < 100 &&
@@ -51,19 +51,20 @@ service cloud.firestore {
              data.pillarType in ['MODIFIED', 'CONVENTIONAL'] &&
              data.pillarSize in ['2WAY', '4WAY', '6WAY', '8WAY'] &&
              data.pbAddress is string && data.pbAddress.size() > 0 && data.pbAddress.size() < 1000 &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             data.createdBy == request.auth.uid;
     }
 
     match /surveys/{surveyId} {
-      // Allow public read for recent history
-      allow read: if true;
+      // Allow users to read only their own surveys
+      allow read: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
       
-      // Allow public create
+      // Allow users to create surveys tagged with their UID
       allow create: if isValidSurvey(request.resource.data);
       
-      // Allow public update/delete for simplicity as requested
-      allow update: if true;
-      allow delete: if true;
+      // Allow users to update/delete only their own surveys
+      allow update: if isOwner(resource.data) && isValidSurvey(request.resource.data);
+      allow delete: if isOwner(resource.data);
     }
   }
 }
