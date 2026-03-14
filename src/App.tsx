@@ -222,6 +222,7 @@ function SurveyApp() {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showExportConfirm, setShowExportConfirm] = useState(false);
 
   // Connection Listeners
   useEffect(() => {
@@ -304,68 +305,117 @@ function SurveyApp() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const downloadCSV = () => {
+  const [isExporting, setIsExporting] = useState(false);
+
+  const downloadCSV = async () => {
     if (recentSurveys.length === 0) return;
+    setShowExportConfirm(false);
+    setIsExporting(true);
 
-    // Define headers based on SurveyData interface
-    const headers = [
-      'Submission Date',
-      'Surveyor Name',
-      'Survey Date',
-      'Pillar Box Name/Number',
-      'Category',
-      'Pillar Type',
-      'Pillar Size',
-      'Door Condition',
-      'Base Plate Condition',
-      'Blank Off',
-      'Lock',
-      'Door Status',
-      'Hinge Broken',
-      'PB Inclined',
-      'Raising Required',
-      'Garbage Blockage',
-      'PB Address',
-      'Findings'
-    ];
+    try {
+      // Define headers based on SurveyData interface
+      const headers = [
+        'Submission Date',
+        'Surveyor Name',
+        'Survey Date',
+        'Pillar Box Name/Number',
+        'Category',
+        'Pillar Type',
+        'Pillar Size',
+        'Door Condition',
+        'Base Plate Condition',
+        'Blank Off',
+        'Lock',
+        'Door Status',
+        'Hinge Broken',
+        'PB Inclined',
+        'Raising Required',
+        'Garbage Blockage',
+        'PB Address',
+        'Findings'
+      ];
 
-    // Convert data to CSV rows
-    const csvRows = [
-      headers.join(','), // Header row
-      ...recentSurveys.map(s => {
-        return [
-          new Date(s.timestamp).toLocaleString(),
-          `"${s.surveyorName}"`,
-          `"${s.surveyDate}"`,
-          `"${s.pillarBoxName}"`,
-          `"${s.category}"`,
-          `"${s.pillarType}"`,
-          `"${s.pillarSize}"`,
-          `"${s.doorCondition}"`,
-          `"${s.basePlateCondition}"`,
-          `"${s.blankOff}"`,
-          `"${s.lock}"`,
-          `"${s.doorStatus}"`,
-          s.hingeBroken ? 'YES' : 'NO',
-          s.pbInclined ? 'YES' : 'NO',
-          s.raisingRequired ? 'YES' : 'NO',
-          s.garbageBlockage ? 'YES' : 'NO',
-          `"${s.pbAddress.replace(/"/g, '""')}"`,
-          `"${s.findings.replace(/"/g, '""')}"`
-        ].join(',');
-      })
-    ];
+      // Convert data to CSV rows
+      const csvRows = [
+        headers.join(','), // Header row
+        ...recentSurveys.map(s => {
+          return [
+            new Date(s.timestamp).toLocaleString(),
+            `"${s.surveyorName}"`,
+            `"${s.surveyDate}"`,
+            `"${s.pillarBoxName}"`,
+            `"${s.category}"`,
+            `"${s.pillarType}"`,
+            `"${s.pillarSize}"`,
+            `"${s.doorCondition}"`,
+            `"${s.basePlateCondition}"`,
+            `"${s.blankOff}"`,
+            `"${s.lock}"`,
+            `"${s.doorStatus}"`,
+            s.hingeBroken ? 'YES' : 'NO',
+            s.pbInclined ? 'YES' : 'NO',
+            s.raisingRequired ? 'YES' : 'NO',
+            s.garbageBlockage ? 'YES' : 'NO',
+            `"${s.pbAddress.replace(/"/g, '""')}"`,
+            `"${(s.findings || '').replace(/"/g, '""')}"`
+          ].join(',');
+        })
+      ];
 
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `pillar_box_surveys_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const csvContent = csvRows.join('\n');
+      const fileName = `pillar_box_surveys_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      // Add BOM for Excel compatibility and mobile recognition
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+
+      // Try Web Share API first (better for mobile)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], fileName, { type: 'text/csv' });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'Pillar Box Survey Export',
+              text: 'Exported survey data from PB Survey Tool'
+            });
+            setIsExporting(false);
+            return;
+          } catch (shareError) {
+            // If user cancels share, we just stop
+            if ((shareError as Error).name === 'AbortError') {
+              setIsExporting(false);
+              return;
+            }
+            // Otherwise fallback to traditional download
+            console.error("Share failed, falling back to download", shareError);
+          }
+        }
+      }
+
+      // Fallback: Traditional download method
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 100);
+
+      // Show a small notification that download started
+      alert("CSV Export started. Please check your downloads folder.");
+    } catch (error) {
+      console.error("Export failed", error);
+      alert("Failed to export CSV. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
   };
   const handleConnectSheets = async () => {
     try {
@@ -859,12 +909,17 @@ function SurveyApp() {
               </div>
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={downloadCSV}
-                  disabled={recentSurveys.length === 0}
+                  onClick={() => setShowExportConfirm(true)}
+                  disabled={recentSurveys.length === 0 || isExporting}
                   className="flex items-center gap-2 px-4 py-2 bg-[#6750A4] text-white rounded-xl text-sm font-bold shadow-md hover:bg-[#4F378B] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">Export CSV</span>
+                  {isExporting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export CSV'}</span>
+                  <span className="sm:hidden">{isExporting ? '...' : 'CSV'}</span>
                 </button>
                 <button 
                   onClick={() => setShowClearConfirm(true)}
@@ -1107,6 +1162,45 @@ function SurveyApp() {
                 </button>
                 <button 
                   onClick={() => setShowClearConfirm(false)}
+                  className="w-full text-[#49454F] py-4 rounded-full font-bold hover:bg-[#F7F2FA] transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showExportConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowExportConfirm(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-[#F7F2FA] rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Download className="w-8 h-8 text-[#6750A4]" />
+              </div>
+              <h2 className="text-2xl font-bold text-[#1C1B1F] mb-2">Export Data?</h2>
+              <p className="text-[#49454F] mb-8">Are you sure you want to export the data? This will generate a CSV file of all recent surveys.</p>
+              
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={downloadCSV}
+                  className="w-full bg-[#6750A4] text-white py-4 rounded-full font-bold hover:bg-[#4F378B] transition-colors shadow-md"
+                >
+                  Yes, Export Now
+                </button>
+                <button 
+                  onClick={() => setShowExportConfirm(false)}
                   className="w-full text-[#49454F] py-4 rounded-full font-bold hover:bg-[#F7F2FA] transition-colors"
                 >
                   Cancel
