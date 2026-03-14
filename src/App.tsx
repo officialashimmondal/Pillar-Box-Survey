@@ -15,6 +15,13 @@ import {
   writeBatch,
   getDocs
 } from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  signOut,
+  User
+} from 'firebase/auth';
 import { db, auth } from './firebase';
 import { 
   ClipboardCheck, 
@@ -33,7 +40,9 @@ import {
   Trash2,
   X,
   Check,
-  ArrowLeft
+  ArrowLeft,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -223,6 +232,32 @@ function SurveyApp() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showExportConfirm, setShowExportConfirm] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   // Connection Listeners
   useEffect(() => {
@@ -340,18 +375,18 @@ function SurveyApp() {
         headers.join(','), // Header row
         ...recentSurveys.map(s => {
           return [
-            new Date(s.timestamp).toLocaleString(),
-            `"${s.surveyorName}"`,
-            `"${s.surveyDate}"`,
-            `"${s.pillarBoxName}"`,
-            `"${s.category}"`,
-            `"${s.pillarType}"`,
-            `"${s.pillarSize}"`,
-            `"${s.doorCondition}"`,
-            `"${s.basePlateCondition}"`,
-            `"${s.blankOff}"`,
-            `"${s.lock}"`,
-            `"${s.doorStatus}"`,
+            `"${new Date(s.timestamp).toLocaleString().replace(/"/g, '""')}"`,
+            `"${(s.surveyorName || '').replace(/"/g, '""')}"`,
+            `"${(s.surveyDate || '').replace(/"/g, '""')}"`,
+            `"${(s.pillarBoxName || '').replace(/"/g, '""')}"`,
+            `"${(s.category || '').replace(/"/g, '""')}"`,
+            `"${(s.pillarType || '').replace(/"/g, '""')}"`,
+            `"${(s.pillarSize || '').replace(/"/g, '""')}"`,
+            `"${(s.doorCondition || '').replace(/"/g, '""')}"`,
+            `"${(s.basePlateCondition || '').replace(/"/g, '""')}"`,
+            `"${(s.blankOff || '').replace(/"/g, '""')}"`,
+            `"${(s.lock || '').replace(/"/g, '""')}"`,
+            `"${(s.doorStatus || '').replace(/"/g, '""')}"`,
             s.hingeBroken ? 'YES' : 'NO',
             s.pbInclined ? 'YES' : 'NO',
             s.raisingRequired ? 'YES' : 'NO',
@@ -494,17 +529,17 @@ function SurveyApp() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this survey?')) return;
     try {
       await deleteDoc(doc(db, 'surveys', id));
     } catch (error) {
-      console.error("Failed to delete survey:", error);
+      handleFirestoreError(error, OperationType.DELETE, `surveys/${id}`);
     }
   };
 
   const handleClearHistory = async () => {
+    const path = 'surveys';
     try {
-      const q = query(collection(db, 'surveys'));
+      const q = query(collection(db, path));
       const snapshot = await getDocs(q);
       const batch = writeBatch(db);
       snapshot.docs.forEach((doc) => {
@@ -513,7 +548,7 @@ function SurveyApp() {
       await batch.commit();
       setShowClearConfirm(false);
     } catch (error) {
-      console.error("Failed to clear history:", error);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   };
 
@@ -541,7 +576,29 @@ function SurveyApp() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sheets connection removed as requested */}
+          {user ? (
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:flex flex-col items-end">
+                <span className="text-[10px] font-bold text-[#1C1B1F] leading-none">{user.displayName}</span>
+                <span className="text-[8px] text-[#49454F] leading-none">{user.email}</span>
+              </div>
+              <button 
+                onClick={handleLogout}
+                className="p-2 text-[#49454F] hover:bg-[#F7F2FA] rounded-full transition-colors"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={handleLogin}
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#F7F2FA] text-[#6750A4] rounded-full text-xs font-bold hover:bg-[#EADDFF] transition-colors"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Login</span>
+            </button>
+          )}
         </div>
       </header>
 
